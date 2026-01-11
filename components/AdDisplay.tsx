@@ -128,6 +128,9 @@ export const AdDisplay: React.FC<AdDisplayProps> = ({ ad }) => {
           ) : (
             <p className="text-purple-100 text-sm">{displayedText}</p>
           )}
+          <p className="text-xs text-purple-200 mt-2">
+            (Demo: This would trigger a rewarded video ad in a real app.)
+          </p>
         </div>
       );
       break;

@@ -45,7 +45,10 @@ export const GameScreen: React.FC<GameScreenProps> = ({ level, onLevelComplete, 
   useEffect(() => { isGameRunningRef.current = isGameRunning; }, [isGameRunning]); // Update isGameRunning ref
 
   const animationFrameRef = useRef<number>();
-  const lastUpdateTimeRef = useRef<number>(Date.now()); // Moved here for stable access
+  // Fix: Removed explicit type argument from useRef, letting TypeScript infer 'number'
+  // This addresses potential subtle issues where explicit type annotation combined with a function call for initial value
+  // might be misinterpreted by some linting or TypeScript configurations, leading to an "Expected 1 arguments, but got 0" error.
+  const lastUpdateTimeRef = useRef(Date.now()); // Moved here for stable access
 
   const rewardedAd = ads.find(ad => ad.type === 'rewarded' && ad.placement === 'game');
 
