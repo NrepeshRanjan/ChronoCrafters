@@ -7,6 +7,13 @@ import { AdDisplay } from '../components/AdDisplay';
 import { Button } from '../components/Button';
 import { useNavigate } from 'react-router-dom';
 
+// Import sound assets
+import buttonSound from '../assets/sounds/button_click.mp3';
+import successSound from '../assets/sounds/success.mp3';
+import failureSound from '../assets/sounds/failure.mp3';
+import rewindSound from '../assets/sounds/rewind.mp3';
+import hintSound from '../assets/sounds/hint.mp3';
+
 interface HomePageProps {
   branding: Branding;
   ads: Ad[]; // Game-specific ads
@@ -65,6 +72,11 @@ export const HomePage: React.FC<HomePageProps> = ({ branding, ads, showToast }) 
     showToast('Congratulations! Level unlocked!', 'success');
   };
 
+  const handleFailLevel = (levelId: string) => {
+    showToast(`Level "${levelId}" failed. Try again!`, 'error');
+    // For now, failure doesn't change completed levels, but could in future
+  };
+
   const handleBackToLevelSelect = () => {
     setSelectedLevel(null);
   };
@@ -109,6 +121,7 @@ export const HomePage: React.FC<HomePageProps> = ({ branding, ads, showToast }) 
           onBackToSelect={handleBackToLevelSelect}
           onReplayLevel={handleReplayLevel}
           onNextLevel={handleNextLevel}
+          onFailLevel={handleFailLevel} // New: Pass failure handler
           hasMoreLevels={GAME_LEVELS.findIndex(l => l.id === selectedLevel.id) < GAME_LEVELS.length - 1}
         />
       ) : (

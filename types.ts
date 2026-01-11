@@ -42,7 +42,8 @@ export interface GameObject {
   type: 'static' | 'movable' | 'plant' | 'button';
   position: { x: number; y: number };
   size: { width: number; height: number };
-  color: string;
+  color?: string; // Made optional, can be overridden by icon
+  icon?: string; // New: Emoji or small image URL for visual representation
   properties?: { [key: string]: any }; // e.g., 'growthStage', 'isPressed', 'momentum'
   timeAffectedBy?: 'dimension' | 'self'; // How time manipulation affects it
 }
@@ -86,6 +87,16 @@ export interface LevelCompleteModalProps {
   onNextLevel: () => void;
   onBackToSelect: () => void;
   hasMoreLevels: boolean; // Indicates if there's a next level to play
+}
+
+// Props for the LevelFailedModal
+export interface LevelFailedModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  level: GameLevel;
+  geminiFeedback: string | null;
+  onReplayLevel: () => void;
+  onBackToSelect: () => void;
 }
 
 // Gemini API related types (simplified for direct SDK usage)

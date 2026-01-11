@@ -285,9 +285,10 @@ export const GAME_LEVELS: GameLevel[] = [
     description: 'A small garden where fruits ripen at different speeds. Get all apples to full ripeness simultaneously.',
     goal: 'Make all apples ripe at the same time.',
     initialState: [
-      { id: 'apple-1', type: 'plant', position: { x: 50, y: 150 }, size: { width: 30, height: 30 }, color: 'green', properties: { growthStage: 0.2 }, timeAffectedBy: 'dimension' },
-      { id: 'apple-2', type: 'plant', position: { x: 150, y: 100 }, size: { width: 30, height: 30 }, color: 'green', properties: { growthStage: 0.5 }, timeAffectedBy: 'dimension' },
-      { id: 'apple-3', type: 'plant', position: { x: 250, y: 200 }, size: { width: 30, height: 30 }, color: 'green', properties: { growthStage: 0.8 }, timeAffectedBy: 'dimension' },
+      { id: 'apple-1', type: 'plant', position: { x: 50, y: 150 }, size: { width: 30, height: 30 }, color: 'green', icon: '🍏', properties: { growthStage: 0.2 }, timeAffectedBy: 'dimension' },
+      { id: 'apple-2', type: 'plant', position: { x: 150, y: 100 }, size: { width: 30, height: 30 }, color: 'green', icon: '🍏', properties: { growthStage: 0.5 }, timeAffectedBy: 'dimension' },
+      { id: 'apple-3', type: 'plant', position: { x: 250, y: 200 }, size: { width: 30, height: 30 }, color: 'green', icon: '🍏', properties: { growthStage: 0.8 }, timeAffectedBy: 'dimension' },
+      { id: 'ground', type: 'static', position: { x: 0, y: 280 }, size: { width: 300, height: 20 }, color: '#333' } // Added ground for consistency
     ],
     timeControls: ['globalSpeed'],
     winningCondition: (objects: any[]) => {
@@ -303,15 +304,16 @@ export const GAME_LEVELS: GameLevel[] = [
     description: 'Two buttons need to be pressed in quick succession, but they operate on different time flows. Use pause and global speed to sync them.',
     goal: 'Press both buttons within 0.1 seconds of each other.',
     initialState: [
-      { id: 'button-A', type: 'button', position: { x: 80, y: 150 }, size: { width: 40, height: 20 }, color: 'gray', properties: { isPressed: false, pressTime: -1 }, timeAffectedBy: 'dimension' },
-      { id: 'button-B', type: 'button', position: { x: 220, y: 150 }, size: { width: 40, height: 20 }, color: 'gray', properties: { isPressed: false, pressTime: -1 }, timeAffectedBy: 'self' }, // Imagine 'self' means its internal timer is faster
-      { id: 'barrier', type: 'static', position: { x: 150, y: 100 }, size: { width: 10, height: 100 }, color: 'red' }
+      { id: 'button-A', type: 'button', position: { x: 80, y: 150 }, size: { width: 40, height: 20 }, color: 'gray', icon: '⚪', properties: { isPressed: false, pressTime: -1 }, timeAffectedBy: 'dimension' },
+      { id: 'button-B', type: 'button', position: { x: 220, y: 150 }, size: { width: 40, height: 20 }, color: 'gray', icon: '⚪', properties: { isPressed: false, pressTime: -1 }, timeAffectedBy: 'self' }, // Imagine 'self' means its internal timer is faster
+      { id: 'barrier', type: 'static', position: { x: 150, y: 100 }, size: { width: 10, height: 100 }, color: 'red' },
+      { id: 'ground', type: 'static', position: { x: 0, y: 280 }, size: { width: 300, height: 20 }, color: '#333' }
     ],
     timeControls: ['globalSpeed', 'pauseObject'],
     winningCondition: (objects: any[]) => {
       const buttonA = objects.find(obj => obj.id === 'button-A');
       const buttonB = objects.find(obj => obj.id === 'button-B');
-      if (buttonA.properties.isPressed && buttonB.properties.isPressed) {
+      if (buttonA?.properties?.isPressed && buttonB?.properties?.isPressed) { // Added null checks
         return Math.abs(buttonA.properties.pressTime - buttonB.properties.pressTime) <= 0.1;
       }
       return false;
@@ -325,14 +327,14 @@ export const GAME_LEVELS: GameLevel[] = [
     description: 'A delicate vase is about to fall. Use time reversal to catch it before it shatters.',
     goal: 'Prevent the vase from breaking by reversing time and moving a platform into place.',
     initialState: [
-      { id: 'vase', type: 'movable', position: { x: 150, y: 50 }, size: { width: 20, height: 40 }, color: 'white', properties: { falling: true, shattered: false }, timeAffectedBy: 'dimension' },
-      { id: 'platform', type: 'movable', position: { x: 100, y: 250 }, size: { width: 80, height: 10 }, color: 'brown', properties: { canMove: true, targetY: 100 }, timeAffectedBy: 'self' },
-      { id: 'ground', type: 'static', position: { x: 0, y: 280 }, size: { width: 300, height: 20 }, color: 'gray' }
+      { id: 'vase', type: 'movable', position: { x: 150, y: 50 }, size: { width: 20, height: 40 }, color: 'white', icon: '🏺', properties: { falling: true, shattered: false }, timeAffectedBy: 'dimension' },
+      { id: 'platform', type: 'movable', position: { x: 100, y: 250 }, size: { width: 80, height: 10 }, color: 'brown', icon: '🟫', properties: { canMove: true, targetY: 100 }, timeAffectedBy: 'self' },
+      { id: 'ground', type: 'static', position: { x: 0, y: 280 }, size: { width: 300, height: 20 }, color: '#333' }
     ],
     timeControls: ['globalSpeed', 'direction'], // direction will be 'forward'/'reverse'
     winningCondition: (objects: any[]) => {
       const vase = objects.find(obj => obj.id === 'vase');
-      return !vase.properties.shattered && vase.position.y >= 100 && vase.position.y < 280 &&
+      return vase && !vase.properties.shattered && vase.position.y >= 100 && vase.position.y < 280 &&
              objects.find(obj => obj.id === 'platform' && obj.position.y <= vase.position.y + vase.size.height);
     },
     geminiHintPrompt: `The player is on Level 3, 'Reversal River'. The goal is to prevent a falling vase from breaking. The player can reverse time and move a platform. The vase is falling from y=50 towards y=280 (ground). A platform needs to be positioned under it. Provide a short, actionable hint.`,
@@ -345,6 +347,7 @@ export const GEMINI_MODEL = 'gemini-3-flash-preview';
 export const GEMINI_SYSTEM_INSTRUCTION_HINT = `You are a helpful game assistant for "ChronoCrafters: Temporal Tangle". You provide concise, actionable, and spoiler-free hints to players who are stuck on a puzzle. Do not reveal the exact solution, but guide them towards the next step.`;
 export const GEMINI_SYSTEM_INSTRUCTION_AD = `You are an ad copy generator for "ChronoCrafters: Temporal Tangle". Create short, engaging, and enticing ad texts that fit a mysterious time-manipulation game. Focus on captivating the player's interest.`;
 export const GEMINI_SYSTEM_INSTRUCTION_LEVEL_FEEDBACK = `You are the "Temporal Chronicler" for "ChronoCrafters: Temporal Tangle". After a player completes a level, provide a brief, thematic, and encouraging "Temporal Anomaly Report". Comment on their time manipulation skills, efficiency, or the outcome in a lore-friendly way. Do not reveal solutions.`; // New Gemini instruction
+export const GEMINI_SYSTEM_INSTRUCTION_LEVEL_FAILED_FEEDBACK = `You are the "Temporal Chronicler" for "ChronoCrafters: Temporal Tangle". A player has failed a level. Provide a brief, thematic, and slightly somber or cautionary "Temporal Anomaly Report" about the failure, without being too harsh. Comment on the consequence or the need for more precise temporal control.`; // New Gemini instruction for failure
 
 // AdMob/Play Store Compliance Constants
 export const SUPPORT_EMAIL = 'support@chronocrafters.com';
