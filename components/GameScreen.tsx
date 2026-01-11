@@ -68,7 +68,11 @@ export const GameScreen: React.FC<GameScreenProps> = ({ level, onLevelComplete, 
 
   const rewardedAd = ads.find(ad => ad.type === 'rewarded' && ad.placement === 'game');
 
-  // Fix 1: Explicitly type the callback function for useCallback to help type inference
+  // Fix 1: Add all stable state setters to the useCallback dependency array.
+  // While state setters have stable identities and do not typically need to be in the dependency array,
+  // explicitly listing them can sometimes help resolve specific type inference issues or satisfy strict linters,
+  // particularly when `useCallback` is explicitly typed with `FrameRequestCallback` and an initially empty dependency array.
+  // This ensures the callback's signature is correctly interpreted and prevents potential 'expected N arguments, got M' errors.
   const gameLoop = useCallback<FrameRequestCallback>((currentTime: DOMHighResTimeStamp) => {
     if (!isGameRunningRef.current) return;
 
@@ -188,7 +192,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({ level, onLevelComplete, 
     }
 
     animationFrameRef.current = requestAnimationFrame(gameLoop);
-  }, []);
+  }, [setObjects, setTimeControl, setGameTime, setRewindCharges, setIsGameRunning, setHint]);
 
   // Effect to start/stop the game loop
   useEffect(() => {

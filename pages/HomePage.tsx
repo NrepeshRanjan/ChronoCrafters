@@ -108,6 +108,7 @@ export const HomePage: React.FC<HomePageProps> = ({ branding, ads, showToast }) 
           showToast={showToast}
           onBackToSelect={handleBackToLevelSelect}
           onReplayLevel={handleReplayLevel}
+          onNextLevel={handleNextLevel}
           hasMoreLevels={GAME_LEVELS.findIndex(l => l.id === selectedLevel.id) < GAME_LEVELS.length - 1}
         />
       ) : (
