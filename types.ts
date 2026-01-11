@@ -63,6 +63,29 @@ export interface GameLevel {
   timeControls: string[]; // e.g., ['globalSpeed', 'reverse', 'pauseObject']
   winningCondition: (objects: GameObject[]) => boolean;
   geminiHintPrompt?: string; // Optional prompt for Gemini-generated hints
+  initialRewindCharges?: number; // New: Number of rewinds available for the level
+}
+
+// Represents a snapshot of the game state for rewind functionality
+export interface GameStateSnapshot {
+  objects: GameObject[];
+  timeControl: TimeControlState;
+  gameTime: number;
+}
+
+// Props for the LevelCompleteModal
+export interface LevelCompleteModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  level: GameLevel;
+  timeTaken: number;
+  rewindsUsed: number;
+  starsEarned: number;
+  geminiFeedback: string | null;
+  onReplayLevel: () => void;
+  onNextLevel: () => void;
+  onBackToSelect: () => void;
+  hasMoreLevels: boolean; // Indicates if there's a next level to play
 }
 
 // Gemini API related types (simplified for direct SDK usage)

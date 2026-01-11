@@ -34,6 +34,9 @@ export const Footer: React.FC<FooterProps> = ({ branding, links, ads }) => {
               &copy; {new Date().getFullYear()} {COMPANY_NAME || branding.appName}. All rights reserved.
             </p>
             <p className="text-sm text-gray-200 mt-2">
+              Developed by maaZone
+            </p>
+            <p className="text-sm text-gray-200 mt-2">
               <a href={`mailto:${SUPPORT_EMAIL}`} className="hover:text-gray-300 underline">
                 Contact Support
               </a>

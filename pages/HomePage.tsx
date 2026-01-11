@@ -5,6 +5,7 @@ import { LevelSelector } from '../components/LevelSelector';
 import { GameScreen } from '../components/GameScreen';
 import { AdDisplay } from '../components/AdDisplay';
 import { Button } from '../components/Button';
+import { useNavigate } from 'react-router-dom';
 
 interface HomePageProps {
   branding: Branding;
@@ -19,6 +20,7 @@ export const HomePage: React.FC<HomePageProps> = ({ branding, ads, showToast }) 
   const [selectedLevel, setSelectedLevel] = useState<GameLevel | null>(null);
   const [completedLevels, setCompletedLevels] = useState<string[]>([]);
   const [showInterstitialAd, setShowInterstitialAd] = useState<boolean>(false);
+  const navigate = useNavigate();
 
   // Load completed levels from local storage on component mount
   useEffect(() => {
@@ -36,14 +38,14 @@ export const HomePage: React.FC<HomePageProps> = ({ branding, ads, showToast }) 
   const handleLevelSelect = (level: GameLevel) => {
     const interstitialAd = ads.find(ad => ad.type === 'interstitial' && ad.placement === 'game');
     if (interstitialAd) {
-      const lastInterstitialLevel = parseInt(localStorage.getItem(LOCAL_STORAGE_KEY_LAST_INTERSTITIAL_LEVEL) || '0', 10);
-      const levelsSinceLastAd = (GAME_LEVELS.findIndex(l => l.id === level.id) + 1) - lastInterstitialLevel;
+      const lastInterstitialLevelIndex = parseInt(localStorage.getItem(LOCAL_STORAGE_KEY_LAST_INTERSTITIAL_LEVEL) || '0', 10);
+      const currentLevelIndex = GAME_LEVELS.findIndex(l => l.id === level.id);
+      const levelsSinceLastAd = currentLevelIndex - lastInterstitialLevelIndex;
 
       if (interstitialAd.frequencyCap > 0 && levelsSinceLastAd >= interstitialAd.frequencyCap) {
         setShowInterstitialAd(true);
-        localStorage.setItem(LOCAL_STORAGE_KEY_LAST_INTERSTITIAL_LEVEL, String(GAME_LEVELS.findIndex(l => l.id === level.id) + 1));
-        // After showing ad, set the level. This is a simplified flow.
-        // In a real app, ad would show, then a callback would set the level.
+        localStorage.setItem(LOCAL_STORAGE_KEY_LAST_INTERSTITIAL_LEVEL, String(currentLevelIndex));
+        // Simulate ad display, then set the level
         setTimeout(() => {
           setSelectedLevel(level);
           setShowInterstitialAd(false);
@@ -54,15 +56,32 @@ export const HomePage: React.FC<HomePageProps> = ({ branding, ads, showToast }) 
     setSelectedLevel(level);
   };
 
-  const handleLevelComplete = (levelId: string) => {
+  const handleLevelComplete = (levelId: string, timeTaken: number, rewindsUsed: number) => {
     if (!completedLevels.includes(levelId)) {
       setCompletedLevels(prev => [...prev, levelId]);
     }
-    // After a delay, navigate back to level selector
-    setTimeout(() => {
-      setSelectedLevel(null);
-      showToast('Congratulations! Level unlocked!', 'success');
-    }, 2000);
+    // The LevelCompleteModal now handles the post-completion flow
+    // No direct navigation back to selector here; the modal will trigger it.
+    showToast('Congratulations! Level unlocked!', 'success');
+  };
+
+  const handleBackToLevelSelect = () => {
+    setSelectedLevel(null);
+  };
+
+  const handleReplayLevel = (level: GameLevel) => {
+    setSelectedLevel(null); // Clear current selection to force re-render GameScreen with fresh state
+    setTimeout(() => setSelectedLevel(level), 0); // Re-select in next render cycle
+  };
+
+  const handleNextLevel = (currentLevel: GameLevel) => {
+    const currentIndex = GAME_LEVELS.findIndex(l => l.id === currentLevel.id);
+    if (currentIndex !== -1 && currentIndex < GAME_LEVELS.length - 1) {
+      setSelectedLevel(GAME_LEVELS[currentIndex + 1]);
+    } else {
+      showToast('You completed all available levels!', 'info');
+      setSelectedLevel(null); // Go back to level select if no more levels
+    }
   };
 
   const currentInterstitialAd = ads.find(ad => ad.type === 'interstitial' && ad.placement === 'game');
@@ -87,6 +106,9 @@ export const HomePage: React.FC<HomePageProps> = ({ branding, ads, showToast }) 
           onLevelComplete={handleLevelComplete}
           ads={ads}
           showToast={showToast}
+          onBackToSelect={handleBackToLevelSelect}
+          onReplayLevel={handleReplayLevel}
+          hasMoreLevels={GAME_LEVELS.findIndex(l => l.id === selectedLevel.id) < GAME_LEVELS.length - 1}
         />
       ) : (
         <div className="text-center p-6">

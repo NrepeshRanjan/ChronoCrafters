@@ -31,7 +31,7 @@ We do not collect personally identifiable information (PII) from our users. Howe
 
 *   **Gameplay Data:** Information about your interaction with the game, such as levels completed, scores, progress, time spent in game, and in-game actions. This data is stored locally on your device and is not transmitted to our servers.
 *   **Device Information:** We may collect non-specific device information like device type, operating system, and unique device identifiers (e.g., advertiser IDs) for analytical purposes and ad serving. This information does not directly identify you.
-*   **Ad Interactions:** Data related to your interaction with advertisements, such as ad impressions, clicks, and conversions.
+*   **Ad Interactions:** Data related to your interaction with advertisements, suchs as ad impressions, clicks, and conversions.
 
 ## 2. How We Use Your Information
 
@@ -106,7 +106,7 @@ The Service is provided on an "AS IS" and "AS AVAILABLE" basis. We make no repre
 
 ## 6. Limitation of Liability
 
-In no event shall [Your Company Name/Developer Name], nor its directors, employees, partners, agents, suppliers, or affiliates, be liable for any indirect, incidental, special, consequential, or punitive damages, including without limitation, loss of profits, data, use, goodwill, or other intangible losses, resulting from (i) your access to or use of or inability to access or use the Service; (ii) any conduct or content of any third party on the Service; (iii) any content obtained from the Service; and (iv) unauthorized access, use or alteration of your transmissions or content, whether based on warranty, contract, tort (including negligence) or any other legal theory, whether or not we have been informed of the possibility of such damage, and even if a remedy set forth herein is found to have failed of its essential purpose.
+In no event shall [Your Company Name/Developer Name], nor its directors, employees, partners, agents, suppliers, or affiliates, be liable for any indirect, incidental, special, consequential, or punitive damages, including without limitation, loss of profits, data, use, goodwill, or other intangible losses, resulting from (i) your access to or use of or inability to access or use the Service; (iii) any content obtained from the Service; and (iv) unauthorized access, use or alteration of your transmissions or content, whether based on warranty, contract, tort (including negligence) or any other legal theory, whether or not we have been informed of the possibility of such damage, and even if a remedy set forth herein is found to have failed of its essential purpose.
 
 ## 7. Governing Law
 
@@ -294,7 +294,8 @@ export const GAME_LEVELS: GameLevel[] = [
       const apples = objects.filter(obj => obj.id.startsWith('apple'));
       return apples.every(apple => apple.properties.growthStage >= 0.99);
     },
-    geminiHintPrompt: `The player is on Level 1, 'The Clockwork Orchard'. The goal is to make all apples ripe at the same time. Apples are at growth stages 0.2, 0.5, and 0.8. The only control is 'globalSpeed'. Provide a short, actionable hint.`
+    geminiHintPrompt: `The player is on Level 1, 'The Clockwork Orchard'. The goal is to make all apples ripe at the same time. Apples are at growth stages 0.2, 0.5, and 0.8. The only control is 'globalSpeed'. Provide a short, actionable hint.`,
+    initialRewindCharges: 3, // Added rewind charges
   },
   {
     id: 'level-2',
@@ -315,7 +316,8 @@ export const GAME_LEVELS: GameLevel[] = [
       }
       return false;
     },
-    geminiHintPrompt: `The player is on Level 2, 'Temporal Toggles'. The goal is to press two buttons within 0.1 seconds. Button A reacts to global speed, Button B has its own fast internal timer. Controls are 'globalSpeed' and 'pauseObject'. Provide a short, actionable hint.`
+    geminiHintPrompt: `The player is on Level 2, 'Temporal Toggles'. The goal is to press two buttons within 0.1 seconds. Button A reacts to global speed, Button B has its own fast internal timer. Controls are 'globalSpeed' and 'pauseObject'. Provide a short, actionable hint.`,
+    initialRewindCharges: 2, // Added rewind charges
   },
   {
     id: 'level-3',
@@ -333,7 +335,8 @@ export const GAME_LEVELS: GameLevel[] = [
       return !vase.properties.shattered && vase.position.y >= 100 && vase.position.y < 280 &&
              objects.find(obj => obj.id === 'platform' && obj.position.y <= vase.position.y + vase.size.height);
     },
-    geminiHintPrompt: `The player is on Level 3, 'Reversal River'. The goal is to prevent a falling vase from breaking. The player can reverse time and move a platform. The vase is falling from y=50 towards y=280 (ground). A platform needs to be positioned under it. Provide a short, actionable hint.`
+    geminiHintPrompt: `The player is on Level 3, 'Reversal River'. The goal is to prevent a falling vase from breaking. The player can reverse time and move a platform. The vase is falling from y=50 towards y=280 (ground). A platform needs to be positioned under it. Provide a short, actionable hint.`,
+    initialRewindCharges: 1, // Added rewind charges
   }
 ];
 
@@ -341,6 +344,7 @@ export const GAME_LEVELS: GameLevel[] = [
 export const GEMINI_MODEL = 'gemini-3-flash-preview';
 export const GEMINI_SYSTEM_INSTRUCTION_HINT = `You are a helpful game assistant for "ChronoCrafters: Temporal Tangle". You provide concise, actionable, and spoiler-free hints to players who are stuck on a puzzle. Do not reveal the exact solution, but guide them towards the next step.`;
 export const GEMINI_SYSTEM_INSTRUCTION_AD = `You are an ad copy generator for "ChronoCrafters: Temporal Tangle". Create short, engaging, and enticing ad texts that fit a mysterious time-manipulation game. Focus on captivating the player's interest.`;
+export const GEMINI_SYSTEM_INSTRUCTION_LEVEL_FEEDBACK = `You are the "Temporal Chronicler" for "ChronoCrafters: Temporal Tangle". After a player completes a level, provide a brief, thematic, and encouraging "Temporal Anomaly Report". Comment on their time manipulation skills, efficiency, or the outcome in a lore-friendly way. Do not reveal solutions.`; // New Gemini instruction
 
 // AdMob/Play Store Compliance Constants
 export const SUPPORT_EMAIL = 'support@chronocrafters.com';

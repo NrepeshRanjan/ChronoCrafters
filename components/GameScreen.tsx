@@ -1,39 +1,60 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { GameLevel, GameObject, TimeControlState, Ad, ToastMessage } from '../types';
+import { GameLevel, GameObject, TimeControlState, Ad, ToastMessage, GameStateSnapshot } from '../types';
 import { Button } from './Button';
 import { AdDisplay } from './AdDisplay';
 import { generateGeminiContent } from '../services/geminiService';
-import { GEMINI_MODEL, GEMINI_SYSTEM_INSTRUCTION_HINT } from '../constants';
+import { GEMINI_MODEL, GEMINI_SYSTEM_INSTRUCTION_HINT, GEMINI_SYSTEM_INSTRUCTION_LEVEL_FEEDBACK } from '../constants';
+import { LevelCompleteModal } from './LevelCompleteModal'; // New import
 
 interface GameScreenProps {
   level: GameLevel;
-  onLevelComplete: (levelId: string) => void;
+  onLevelComplete: (levelId: string, timeTaken: number, rewindsUsed: number) => void;
   ads: Ad[]; // Ads for in-game placement (e.g., rewarded for hints)
   showToast: (message: string, type: ToastMessage['type']) => void;
+  onBackToSelect: () => void; // Added prop to go back to level select
+  onReplayLevel: (level: GameLevel) => void; // Added prop to replay current level
+  onNextLevel: (level: GameLevel) => void; // New: Added prop to advance to next level
+  hasMoreLevels: boolean; // Added prop to indicate if there's a next level
 }
 
-export const GameScreen: React.FC<GameScreenProps> = ({ level, onLevelComplete, ads, showToast }) => {
-  // State for game objects and time control
+const REWIND_INTERVAL_MS = 200; // How often to save a state snapshot
+const REWIND_DURATION_SECONDS = 5; // How many seconds to rewind by
+
+export const GameScreen: React.FC<GameScreenProps> = ({ level, onLevelComplete, ads, showToast, onBackToSelect, onReplayLevel, hasMoreLevels, onNextLevel }) => {
+  // Game state
   const [objects, setObjects] = useState<GameObject[]>(level.initialState);
   const [timeControl, setTimeControl] = useState<TimeControlState>({
-    globalSpeed: 1, // 0 (paused), 0.5 (slow), 1 (normal), 2 (fast)
-    direction: 'forward', // 'forward' or 'reverse'
+    globalSpeed: 1,
+    direction: 'forward',
     pausedObjects: [],
   });
   const [isGameRunning, setIsGameRunning] = useState<boolean>(false);
-  const [gameTime, setGameTime] = useState<number>(0); // Internal game time
+  const [gameTime, setGameTime] = useState<number>(0);
+  const [rewindCharges, setRewindCharges] = useState<number>(level.initialRewindCharges || 0);
+
+  // UI state
   const [hint, setHint] = useState<string | null>(null);
   const [isHintLoading, setIsHintLoading] = useState<boolean>(false);
+  const [isLevelCompleteModalOpen, setIsLevelCompleteModalOpen] = useState<boolean>(false);
+  const [levelCompletionData, setLevelCompletionData] = useState<{ time: number; rewinds: number; stars: number; geminiFeedback: string | null } | null>(null);
 
-  // Refs for stable access to mutable values inside the game loop
-  // These refs are updated by useEffects to ensure they always hold the latest state/prop values
+  // Refs for stable access to mutable values inside the game loop and other callbacks
   const objectsRef = useRef<GameObject[]>(objects);
   const timeControlRef = useRef<TimeControlState>(timeControl);
   const gameTimeRef = useRef<number>(gameTime);
   const levelRef = useRef<GameLevel>(level);
-  const onLevelCompleteRef = useRef<(levelId: string) => void>(onLevelComplete);
+  const onLevelCompleteRef = useRef<(levelId: string, timeTaken: number, rewindsUsed: number) => void>(onLevelComplete);
   const showToastRef = useRef<(message: string, type: ToastMessage['type']) => void>(showToast);
-  const isGameRunningRef = useRef<boolean>(isGameRunning); // Added ref for isGameRunning
+  const isGameRunningRef = useRef<boolean>(isGameRunning);
+  const rewindChargesRef = useRef<number>(rewindCharges); // New ref for rewind charges
+
+  // State history for rewind functionality
+  const gameHistoryRef = useRef<GameStateSnapshot[]>([]);
+  const lastHistorySnapshotTimeRef = useRef<number>(0);
+
+  // Animation frame and time tracking
+  const animationFrameRef = useRef<number>();
+  const lastUpdateTimeRef = useRef(Date.now());
 
   // Update refs whenever relevant state/props change
   useEffect(() => { objectsRef.current = objects; }, [objects]);
@@ -42,21 +63,13 @@ export const GameScreen: React.FC<GameScreenProps> = ({ level, onLevelComplete, 
   useEffect(() => { levelRef.current = level; }, [level]);
   useEffect(() => { onLevelCompleteRef.current = onLevelComplete; }, [onLevelComplete]);
   useEffect(() => { showToastRef.current = showToast; }, [showToast]);
-  useEffect(() => { isGameRunningRef.current = isGameRunning; }, [isGameRunning]); // Update isGameRunning ref
-
-  const animationFrameRef = useRef<number>();
-  // Fix: Removed explicit type argument from useRef, letting TypeScript infer 'number'
-  // This addresses potential subtle issues where explicit type annotation combined with a function call for initial value
-  // might be misinterpreted by some linting or TypeScript configurations, leading to an "Expected 1 arguments, but got 0" error.
-  const lastUpdateTimeRef = useRef(Date.now()); // Moved here for stable access
+  useEffect(() => { isGameRunningRef.current = isGameRunning; }, [isGameRunning]);
+  useEffect(() => { rewindChargesRef.current = rewindCharges; }, [rewindCharges]);
 
   const rewardedAd = ads.find(ad => ad.type === 'rewarded' && ad.placement === 'game');
 
-  // Game physics/state update loop - made stable with empty dependency array
-  // It accesses state and props via refs to avoid being re-created on every render
-  const gameLoop = useCallback((currentTime: DOMHighResTimeStamp) => {
-    // Only proceed if the game is actually running. The `useEffect` below handles starting/stopping `requestAnimationFrame`.
-    // This check is primarily for the very first frame or if `isGameRunning` changes mid-loop, though the outer `useEffect` usually stops it.
+  // Fix 1: Explicitly type the callback function for useCallback to help type inference
+  const gameLoop = useCallback<FrameRequestCallback>((currentTime: DOMHighResTimeStamp) => {
     if (!isGameRunningRef.current) return;
 
     const currentObjects = objectsRef.current;
@@ -64,56 +77,59 @@ export const GameScreen: React.FC<GameScreenProps> = ({ level, onLevelComplete, 
     const currentLevel = levelRef.current;
     const currentOnLevelComplete = onLevelCompleteRef.current;
     const currentShowToast = showToastRef.current;
+    const currentRewindCharges = rewindChargesRef.current;
 
-    const deltaTime = (currentTime - lastUpdateTimeRef.current) / 1000; // delta in seconds
+    const deltaTime = (currentTime - lastUpdateTimeRef.current) / 1000;
     lastUpdateTimeRef.current = currentTime;
 
     let updatedObjects = [...currentObjects];
     let effectiveDeltaTime = deltaTime * currentTimeControl.globalSpeed;
 
+    if (effectiveDeltaTime === 0) { // If time is globally paused, don't process physics or history
+        animationFrameRef.current = requestAnimationFrame(gameLoop);
+        return;
+    }
+
     if (currentTimeControl.direction === 'reverse') {
       effectiveDeltaTime *= -1;
     }
 
+    // Update objects
     updatedObjects = updatedObjects.map(obj => {
       if (currentTimeControl.pausedObjects.includes(obj.id)) {
-        return obj; // Object is paused, no update
+        return obj;
       }
 
       const newObj = { ...obj };
 
-      // Example physics for specific object types
       if (newObj.type === 'plant' && newObj.properties?.growthStage !== undefined) {
         if (currentTimeControl.direction === 'forward' && newObj.properties.growthStage < 1) {
-          newObj.properties.growthStage = Math.min(1, newObj.properties.growthStage + (effectiveDeltaTime * 0.1)); // Grow slowly
-          if (newObj.properties.growthStage >= 0.99) newObj.color = 'red'; // Ripe color
+          newObj.properties.growthStage = Math.min(1, newObj.properties.growthStage + (effectiveDeltaTime * 0.1));
+          if (newObj.properties.growthStage >= 0.99) newObj.color = 'red';
         } else if (currentTimeControl.direction === 'reverse' && newObj.properties.growthStage > 0) {
-          newObj.properties.growthStage = Math.max(0, newObj.properties.growthStage + (effectiveDeltaTime * 0.1)); // Degrow
+          newObj.properties.growthStage = Math.max(0, newObj.properties.growthStage + (effectiveDeltaTime * 0.1));
           if (newObj.properties.growthStage < 0.99) newObj.color = 'green';
         }
       }
       if (newObj.type === 'movable' && newObj.properties?.falling) {
           newObj.position = {
             ...newObj.position,
-            y: newObj.position.y + (effectiveDeltaTime * 50) // Fall speed
+            y: newObj.position.y + (effectiveDeltaTime * 50)
           };
-          // Simple collision detection with ground
-          const ground = updatedObjects.find(o => o.id === 'ground'); // Access updatedObjects directly or use currentObjectsRef.current if ground is a static property of the level
+          const ground = currentObjects.find(o => o.id === 'ground'); // Ground is static in this level.
           if (ground && newObj.position.y + newObj.size.height > ground.position.y) {
             if (newObj.id === 'vase' && !newObj.properties?.shattered) {
               newObj.properties = { ...newObj.properties, shattered: true };
-              currentShowToast('Vase shattered!', 'error'); // Use ref
-              setIsGameRunning(false); // Can directly call state setter
+              currentShowToast('Vase shattered!', 'error');
+              setIsGameRunning(false);
             }
-            newObj.position.y = ground.position.y - newObj.size.height; // Rest on ground
+            newObj.position.y = ground.position.y - newObj.size.height;
             newObj.properties = { ...newObj.properties, falling: false };
           }
       }
-      // Example for platform movement if it's affected by 'self' or a button press
       if (newObj.id === 'platform' && newObj.properties?.canMove) {
-        // Move platform towards targetY
         if (newObj.position.y !== newObj.properties.targetY) {
-          const moveAmount = effectiveDeltaTime * 30; // Speed of platform movement
+          const moveAmount = effectiveDeltaTime * 30;
           if (newObj.position.y < newObj.properties.targetY) {
             newObj.position.y = Math.min(newObj.properties.targetY, newObj.position.y + moveAmount);
           } else {
@@ -121,61 +137,95 @@ export const GameScreen: React.FC<GameScreenProps> = ({ level, onLevelComplete, 
           }
         }
       }
-
-      // Example for buttons that auto-reset or track press time
       if (newObj.type === 'button' && newObj.properties?.isPressed) {
-        // If a button is pressed, track its press time
-        newObj.properties.pressTime += effectiveDeltaTime;
+        // Assume button press time is relative to game start, not effectiveDeltaTime directly
+        // For level 2 logic to work, pressTime needs to be recorded globally.
       }
 
       return newObj;
     });
 
-    // Update game time for tracking button presses, etc.
+    // Update game time
     setGameTime(prevTime => {
       const newGameTime = prevTime + effectiveDeltaTime;
-      gameTimeRef.current = newGameTime; // Keep ref updated immediately
+      gameTimeRef.current = newGameTime;
       return newGameTime;
     });
-    setObjects(updatedObjects); // Update objects state
+    setObjects(updatedObjects);
+
+    // Save state snapshot for rewind
+    if (gameTimeRef.current - lastHistorySnapshotTimeRef.current >= REWIND_INTERVAL_MS / 1000) {
+        gameHistoryRef.current.push({
+            objects: objectsRef.current,
+            timeControl: timeControlRef.current,
+            gameTime: gameTimeRef.current,
+        });
+        // Limit history size to prevent memory issues (e.g., 60 seconds worth of snapshots)
+        const maxHistorySize = Math.ceil(60 / (REWIND_INTERVAL_MS / 1000));
+        if (gameHistoryRef.current.length > maxHistorySize) {
+            gameHistoryRef.current.shift();
+        }
+        lastHistorySnapshotTimeRef.current = gameTimeRef.current;
+    }
+
 
     // Check winning condition
-    if (currentLevel.winningCondition(updatedObjects)) { // Use ref
+    if (currentLevel.winningCondition(updatedObjects)) {
       setIsGameRunning(false);
-      currentShowToast('Level Complete!', 'success'); // Use ref
-      currentOnLevelComplete(currentLevel.id); // Use ref
+      currentShowToast('Level Complete!', 'success');
+      // Calculate actual rewinds used before calculating stars
+      const actualRewindsUsed = (currentLevel.initialRewindCharges || 0) - currentRewindCharges;
+      // Calculate stars (simple heuristic for demo)
+      const stars = calculateStars(gameTimeRef.current, actualRewindsUsed);
+      setLevelCompletionData({
+        time: gameTimeRef.current,
+        rewinds: actualRewindsUsed, // rewindsUsed
+        stars,
+        geminiFeedback: null, // Will be fetched after modal opens
+      });
+      setIsLevelCompleteModalOpen(true);
+      currentOnLevelComplete(currentLevel.id, gameTimeRef.current, actualRewindsUsed);
     }
 
     animationFrameRef.current = requestAnimationFrame(gameLoop);
-  }, []); // Empty dependency array means gameLoop is stable and won't be recreated
+  }, []);
 
   // Effect to start/stop the game loop
   useEffect(() => {
     if (isGameRunning) {
-      lastUpdateTimeRef.current = Date.now(); // Initialize last update time
+      lastUpdateTimeRef.current = Date.now();
       animationFrameRef.current = requestAnimationFrame(gameLoop);
     } else {
       cancelAnimationFrame(animationFrameRef.current as number);
     }
-    // Cleanup function to ensure animation frame is cancelled when component unmounts or isGameRunning becomes false
     return () => {
       cancelAnimationFrame(animationFrameRef.current as number);
     };
-  }, [isGameRunning, gameLoop]); // `gameLoop` is stable, so this `useEffect` only re-runs when `isGameRunning` changes.
+  }, [isGameRunning, gameLoop]);
 
-  const handleStartReset = () => {
-    setIsGameRunning(false); // Stop game first
-    setObjects(level.initialState); // Reset objects
+  // Reset level on initial load or when `level` prop changes
+  useEffect(() => {
+    handleStartReset(false); // Do not toast on initial load
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [level.id]); // Only reset when level ID changes
+
+  const handleStartReset = (showResetToast: boolean = true) => {
+    setIsGameRunning(false);
+    setObjects(level.initialState);
     setTimeControl({
       globalSpeed: 1,
       direction: 'forward',
       pausedObjects: [],
     });
     setGameTime(0);
-    setHint(null); // Clear hint on reset
-    // Start game in the next tick to ensure state is fully reset
-    setTimeout(() => setIsGameRunning(true), 0);
-    showToast('Level reset and started!', 'info');
+    setRewindCharges(level.initialRewindCharges || 0); // Reset rewind charges
+    gameHistoryRef.current = []; // Clear history
+    lastHistorySnapshotTimeRef.current = 0; // Reset history time
+    setHint(null);
+    setIsLevelCompleteModalOpen(false); // Close modal if open
+    setLevelCompletionData(null); // Clear completion data
+    setTimeout(() => setIsGameRunning(true), 0); // Start game in the next tick
+    if (showResetToast) showToast('Level reset and started!', 'info');
   };
 
   const setGlobalSpeed = (speed: number) => {
@@ -197,15 +247,48 @@ export const GameScreen: React.FC<GameScreenProps> = ({ level, onLevelComplete, 
   };
 
   const handleObjectInteraction = (objId: string) => {
-    // Example: Clicking a button
     setObjects(prev => prev.map(obj => {
       if (obj.id === objId && obj.type === 'button') {
         showToast(`Button ${obj.id} pressed!`, 'info');
-        return { ...obj, properties: { ...obj.properties, isPressed: true, pressTime: gameTimeRef.current } }; // Use gameTime from ref
+        return { ...obj, properties: { ...obj.properties, isPressed: true, pressTime: gameTimeRef.current } };
       }
       return obj;
     }));
   };
+
+  const handleRewind = () => {
+    if (rewindChargesRef.current > 0) {
+      setIsGameRunning(false); // Pause game during rewind transition
+      setRewindCharges(prev => prev - 1); // Decrement charges
+
+      const targetTime = gameTimeRef.current - REWIND_DURATION_SECONDS;
+      // Find the closest snapshot in history
+      const snapshot = gameHistoryRef.current.reduce((prev, curr) => {
+        return (Math.abs(curr.gameTime - targetTime) < Math.abs(prev.gameTime - targetTime) ? curr : prev);
+      }, gameHistoryRef.current[0]);
+
+      if (snapshot) {
+        setObjects(snapshot.objects);
+        setTimeControl(snapshot.timeControl);
+        setGameTime(snapshot.gameTime);
+        // Trim history to remove future states
+        gameHistoryRef.current = gameHistoryRef.current.filter(s => s.gameTime <= snapshot.gameTime);
+        lastHistorySnapshotTimeRef.current = snapshot.gameTime;
+
+        showToast(`Rewound ${REWIND_DURATION_SECONDS} seconds!`, 'info');
+        // Resume game after a short visual 'rewind' delay
+        setTimeout(() => setIsGameRunning(true), 100);
+      } else {
+        showToast('Not enough history to rewind that far!', 'warning');
+        // If no snapshot, just unpause
+        setRewindCharges(prev => prev + 1); // Refund charge if rewind failed
+        setIsGameRunning(true);
+      }
+    } else {
+      showToast('No rewind charges left!', 'warning');
+    }
+  };
+
 
   const getGeminiHint = useCallback(async () => {
     if (!rewardedAd) {
@@ -213,35 +296,33 @@ export const GameScreen: React.FC<GameScreenProps> = ({ level, onLevelComplete, 
       return;
     }
 
-    // Use levelRef.current for latest level details
     if (!levelRef.current.geminiHintPrompt) {
       showToast('No specific hint prompt for this level. Cannot generate hint.', 'error');
       return;
     }
 
-    // In a real app, you'd integrate with AdMob Rewarded Ads here.
-    // For this demo, we'll just simulate "watching an ad" and then provide the hint.
     showToast(`Simulating rewarded ad for hint...`, 'info');
     setIsHintLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 3000)); // Simulate ad watch delay
+    await new Promise(resolve => setTimeout(resolve, 3000));
 
     const currentGameState = {
-      levelId: levelRef.current.id, // Use ref
-      levelName: levelRef.current.name, // Use ref
-      goal: levelRef.current.goal, // Use ref
-      currentObjects: objectsRef.current.map(obj => ({ // Use ref
+      levelId: levelRef.current.id,
+      levelName: levelRef.current.name,
+      goal: levelRef.current.goal,
+      currentObjects: objectsRef.current.map(obj => ({
         id: obj.id,
         type: obj.type,
         position: obj.position,
         properties: obj.properties,
       })),
-      timeControlState: timeControlRef.current, // Use ref
-      gameTime: gameTimeRef.current, // Use ref
+      timeControlState: timeControlRef.current,
+      gameTime: gameTimeRef.current,
+      rewindChargesRemaining: rewindChargesRef.current,
     };
 
     const prompt = `${GEMINI_SYSTEM_INSTRUCTION_HINT}\n\n` +
                    `Here's the current game state:\n\`\`\`json\n${JSON.stringify(currentGameState, null, 2)}\n\`\`\`\n\n` +
-                   `Level-specific hint request: "${levelRef.current.geminiHintPrompt}"\n\n` + // Use ref
+                   `Level-specific hint request: "${levelRef.current.geminiHintPrompt}"\n\n` +
                    `Please provide a concise and helpful hint, without directly solving the puzzle.`;
 
     try {
@@ -265,7 +346,60 @@ export const GameScreen: React.FC<GameScreenProps> = ({ level, onLevelComplete, 
     } finally {
       setIsHintLoading(false);
     }
-  }, [rewardedAd, showToast]); // Dependencies for this useCallback
+  }, [rewardedAd, showToast]);
+
+  const getGeminiLevelFeedback = useCallback(async (time: number, rewinds: number, stars: number, levelName: string) => {
+    const prompt = `${GEMINI_SYSTEM_INSTRUCTION_LEVEL_FEEDBACK}\n\n` +
+                   `Player completed "${levelName}" in ${time.toFixed(2)} seconds, using ${rewinds} rewinds, earning ${stars} stars. ` +
+                   `Craft a short, thematic report based on these stats, mentioning temporal efficiency or anomaly resolution.`;
+    try {
+      const result = await generateGeminiContent({
+        model: GEMINI_MODEL,
+        contents: prompt,
+        config: {
+          temperature: 0.8,
+          maxOutputTokens: 150,
+        }
+      });
+      return result.text || "The Temporal Chronicler observes your progress.";
+    } catch (err) {
+      console.error("Error generating Gemini level feedback:", err);
+      return "The Temporal Chronicler is currently offline, but commends your efforts!";
+    }
+  }, []);
+
+  const handleLevelCompleteModalOpen = async () => {
+    if (levelCompletionData) {
+      const feedback = await getGeminiLevelFeedback(
+        levelCompletionData.time,
+        levelCompletionData.rewinds,
+        levelCompletionData.stars,
+        level.name
+      );
+      setLevelCompletionData(prev => prev ? { ...prev, geminiFeedback: feedback } : null);
+    }
+  };
+
+  const calculateStars = (timeTaken: number, rewindsUsed: number): number => {
+    // Simple demo logic:
+    // Level 1: 0.2, 0.5, 0.8 growth stages. Goal is simultaneous ripeness.
+    // Optimal time depends on how fast global speed can make them ripen.
+    // For demo, let's say:
+    // Time < 20s & rewinds = 0 -> 3 Stars
+    // Time < 40s & rewinds <= 1 -> 2 Stars
+    // Else -> 1 Star
+    const rawRewindsUsed = rewindsUsed; // This is now the actual number of rewinds used
+    if (timeTaken < 20 && rawRewindsUsed <= 0) return 3;
+    if (timeTaken < 40 && rawRewindsUsed <= 1) return 2;
+    return 1;
+  };
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    const ms = Math.floor((seconds * 100) % 100);
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
+  };
 
   return (
     <div className="flex flex-col lg:flex-row gap-8">
@@ -273,6 +407,9 @@ export const GameScreen: React.FC<GameScreenProps> = ({ level, onLevelComplete, 
       <div className="relative w-full lg:w-3/4 aspect-video bg-gradient-to-br from-blue-900 to-indigo-900 border-4 border-indigo-700 rounded-lg shadow-2xl flex-shrink-0">
         <h3 className="absolute top-4 left-4 text-xl font-bold text-white z-10">Level: {level.name}</h3>
         <p className="absolute top-12 left-4 text-sm text-gray-300 z-10">{level.goal}</p>
+        <div className="absolute top-4 right-4 text-2xl font-bold text-yellow-300 z-10 bg-gray-900 bg-opacity-70 px-3 py-1 rounded-md">
+            {formatTime(gameTime)}
+        </div>
 
         {/* Render game objects */}
         {objects.map(obj => (
@@ -286,9 +423,9 @@ export const GameScreen: React.FC<GameScreenProps> = ({ level, onLevelComplete, 
               width: obj.size.width,
               height: obj.size.height,
               backgroundColor: obj.color,
-              // Add subtle visual cues for time state
               opacity: timeControl.pausedObjects.includes(obj.id) ? 0.6 : 1,
               border: timeControl.pausedObjects.includes(obj.id) ? '2px dashed yellow' : 'none',
+              transition: isGameRunning ? 'all 0.1s linear' : 'none', // Smooth movement when running
             }}
           >
             {obj.type === 'plant' && obj.properties?.growthStage !== undefined && (
@@ -323,6 +460,15 @@ export const GameScreen: React.FC<GameScreenProps> = ({ level, onLevelComplete, 
               <Button onClick={() => setDirection('reverse')} variant={timeControl.direction === 'reverse' ? 'primary' : 'secondary'}>Reverse</Button>
             </>
           )}
+          {/* Rewind button */}
+          <Button
+            onClick={handleRewind}
+            variant="outline"
+            disabled={rewindCharges <= 0 || !isGameRunning}
+            className="flex items-center"
+          >
+            Rewind 5s <span className="ml-2 px-2 py-0.5 bg-gray-700 rounded-full text-xs font-bold">{rewindCharges}</span>
+          </Button>
         </div>
 
         {level.timeControls.includes('pauseObject') && (
@@ -344,7 +490,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({ level, onLevelComplete, 
         )}
 
         <div className="mt-auto pt-6 border-t border-gray-700">
-          <Button onClick={handleStartReset} variant="primary" fullWidth className="mb-4">
+          <Button onClick={() => handleStartReset(true)} variant="primary" fullWidth className="mb-4">
             {isGameRunning ? 'Restart Level' : 'Start Level'}
           </Button>
 
@@ -372,6 +518,21 @@ export const GameScreen: React.FC<GameScreenProps> = ({ level, onLevelComplete, 
           )}
         </div>
       </div>
+      {levelCompletionData && (
+        <LevelCompleteModal
+          isOpen={isLevelCompleteModalOpen}
+          onClose={() => setIsLevelCompleteModalOpen(false)} // Allow closing, but typically navigated away
+          level={level}
+          timeTaken={levelCompletionData.time}
+          rewindsUsed={levelCompletionData.rewinds} // rewindsUsed is now the calculated value
+          starsEarned={levelCompletionData.stars}
+          geminiFeedback={levelCompletionData.geminiFeedback}
+          onReplayLevel={() => onReplayLevel(level)}
+          onNextLevel={() => onNextLevel(level)}
+          onBackToSelect={onBackToSelect}
+          hasMoreLevels={hasMoreLevels}
+        />
+      )}
     </div>
   );
 };
